@@ -24,7 +24,7 @@
     .EXAMPLE
         PS> Get-AZSSupportVM
     .Version
-        0.1
+        0.6
     #>
 
     [CmdletBinding(DefaultParameterSetName="Default")]
@@ -60,7 +60,7 @@ param(
     [string]$ReturnNo
       )
 Do{
-$Continue = Read-Host -Prompt $Prompt # "Continue Migration Anyway (Y/N)?"
+$Continue = Read-Host -Prompt $Prompt
 switch -wildcard ($Continue){
 N{Write-Host "Stopping" ; $Go = $true ; return $ReturnNo}
 Y{Write-Host "Continuing" ; $Go = $true ; continue}
@@ -76,6 +76,7 @@ $ErrorNoise | %{[console]::Beep($_,$(125))}
                             }
 
 #Make any user facing references to disks more readable
+##TODO Figure out why this returns null when it's in a function
 function selectStorage{
 Select-Object -Property @{Name="Lun";Expression={if($_.Lun -notlike $null){$_.Lun} else{"OS Disk for "+$_.OSType}}},`
                                                 Name,`
@@ -244,7 +245,14 @@ $VMNetworkSummary = $NICs | Select -Property Name,`
                                              @{Name="NSGName";Expression={($_.NetworkSecurityGroup.Id).Split('/')[-1]}}
 
 #Clean up Storage
-$azsDisksReport = $azsdisks | selectStorage
+$azsDisksReport = $azsdisks | Select-Object -Property @{Name="Lun";Expression={if($_.Lun -notlike $null){$_.Lun} else{"OS Disk for "+$_.OSType}}},`
+                                                Name,`
+                                                DiskSizeGB,`
+                                                Caching,`
+                                                WriteAcceleratorEnabled,`
+                                                CreateOption,`
+                                                @{Name="Disk Location";Expression={$_.vhd.uri}}
+
 #Clean up Availability Group listing
 $avSetReport = $avSet  | Select -Property Name,`
                                            Sku,`
@@ -495,21 +503,42 @@ Else {
 
 #Check if we had failed disks and ask if we want to continue
 if($DisksMissed.count -notlike 0 -and $DisksMissed.count -notlike $null){
-$DisksMissed | selectStorage
+$DisksMissed | Select-Object -Property @{Name="Lun";Expression={if($_.Lun -notlike $null){$_.Lun} else{"OS Disk for "+$_.OSType}}},`
+                                                Name,`
+                                                DiskSizeGB,`
+                                                Caching,`
+                                                WriteAcceleratorEnabled,`
+                                                CreateOption,`
+                                                @{Name="Disk Location";Expression={$_.vhd.uri}}
+
 Write-Warning "THE FOLLOWING DISKS ABOVE COULD NOT BE CREATED"
 $DiskCountFail = continuePrompt -Prompt "Continue Migration (Y/N)?" -ReturnNo "RebuildVM"
 if($DiskCountFail -eq "RebuildVM"){
     Write-Warning "ATTEMPT REBUILD OF UNMANAGED VM?"
     $TriggerRebuild = continuePrompt -Prompt "Rebuild VM (Y/N)?" -ReturnNo "CancelRebuild"
 if($TriggerRebuild -eq "CancelRebuild"){
-                                        $DisksMissed | selectStorage
+                                        $DisksMissed | Select-Object -Property @{Name="Lun";Expression={if($_.Lun -notlike $null){$_.Lun} else{"OS Disk for "+$_.OSType}}},`
+                                                Name,`
+                                                DiskSizeGB,`
+                                                Caching,`
+                                                WriteAcceleratorEnabled,`
+                                                CreateOption,`
+                                                @{Name="Disk Location";Expression={$_.vhd.uri}}
+
                                         Write-host "The Following Disks Above were not Created"
  
                                }
 
 if($null -eq $TriggerRebuild){revertVM}
 write-host "Ending Script, Note both managed and unmanaged disks for the following unmanaged disks still exist:"
-                                    $DisksCreated | selectStorage
+                                    $DisksCreated | Select-Object -Property @{Name="Lun";Expression={if($_.Lun -notlike $null){$_.Lun} else{"OS Disk for "+$_.OSType}}},`
+                                                Name,`
+                                                DiskSizeGB,`
+                                                Caching,`
+                                                WriteAcceleratorEnabled,`
+                                                CreateOption,`
+                                                @{Name="Disk Location";Expression={$_.vhd.uri}}
+
 exit
 }
 }
@@ -552,14 +581,28 @@ if($null -eq $DiskCleanup){
         Set-AzCurrentStorageAccount -Name $storageacc -ResourceGroupName $azsVM.ResourceGroupName | Out-Null
         $storageContainerName = (Get-AzStorageContainer).Name
         Write-Warning "Starting removal for the below Disk. Do you want to delete the following"
-        $azsdisk| selectStorage
+        $azsdisk| Select-Object -Property @{Name="Lun";Expression={if($_.Lun -notlike $null){$_.Lun} else{"OS Disk for "+$_.OSType}}},`
+                                                Name,`
+                                                DiskSizeGB,`
+                                                Caching,`
+                                                WriteAcceleratorEnabled,`
+                                                CreateOption,`
+                                                @{Name="Disk Location";Expression={$_.vhd.uri}}
+
         $DiskConfirm = $null
         $DiskConfirm = continuePrompt -Prompt "Delete (Y/N)"
         if($null -eq $DiskConfirm){Remove-AzStorageBlob -Container $storageContainerName -Blob "$($azsdisk.Vhd.Uri.Split('/')[-1])" -Force -Confirm:$True}
                                         }
                         }
 if($DiskCleanup -eq "SkipCleanup"){Write-Warning "Disks have been left undeleted. Advise cleanup at a later date"
-$DisksCreated | selectStorage}
+$DisksCreated | Select-Object -Property @{Name="Lun";Expression={if($_.Lun -notlike $null){$_.Lun} else{"OS Disk for "+$_.OSType}}},`
+                                                Name,`
+                                                DiskSizeGB,`
+                                                Caching,`
+                                                WriteAcceleratorEnabled,`
+                                                CreateOption,`
+                                                @{Name="Disk Location";Expression={$_.vhd.uri}}
+}
 ##TODO Figure out how to PROPERLY move VM Extensions with arbitrary data
 #Add Extensions and verify as added
 #New-AzConnectedMachineExtension
